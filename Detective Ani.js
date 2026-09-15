@@ -1,13 +1,15 @@
 // ==UserScript==
-// @name         Detective Ani 🔎
+// @name         Detective Ani
 // @namespace    http://tampermonkey.net/
 // @version      1.0
-// @description  Detects titlex$ in videos and UUID in image EXIF Artist + grok/_generated_ + pure UUID (videos only) + F4 toggle + Detects UUID (grok_post_id) from Twitter/X media via React Fiber. Disabled on grok.com. Completely ignores redgifs.com (iframes + media).
+// @description  AdvanceAdvanced Grok image and video detector.
 // @author       Amu & Grok
 // @match        *://*/*
+// @icon         https://raw.githubusercontent.com/amushin67/DetectiveAni/refs/heads/main/ico_detective.png
 // @grant        GM_xmlhttpRequest
 // @grant        GM_addStyle
 // @connect      *
+// @connect      raw.githubusercontent.com
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -41,13 +43,26 @@
     const HOVER_HINT = 'Press F4 to hide/show';
     const ICON_CLASS = 'titlex-ani';
     const ICON_CLASS_X = 'grok-uuid-icon';
+    const ANI_STORAGE_KEY = 'detectiveAniHasShown';
+    const ANI_IMAGE_URL = 'https://raw.githubusercontent.com/amushin67/DetectiveAni/refs/heads/main/detective_ani.webp';
+    const ANI_WIDTH = 722;
+    const ANI_HEIGHT = 327;
+    const ANI_DURATION_MS = 7000;          // ← agora 7 segundos
+    const ANI_FADE_MS = 700;
 
     // ─── Shared state ────────────────────────────────────────────────────────
     const checkedUrls = new Set();
     const mediaState = new WeakMap();
     let iconsVisible = true;
+    let aniAlreadyShown = false;
+    let aniBlobUrl = null;
 
-    // ─── Styles (injected once) ──────────────────────────────────────────────
+    // sessionStorage → reseta só quando fecha o navegador completamente
+    try {
+        aniAlreadyShown = sessionStorage.getItem(ANI_STORAGE_KEY) === 'true';
+    } catch (_) {}
+
+    // ─── Styles ──────────────────────────────────────────────────────────────
     GM_addStyle(`
         .${ICON_CLASS}, .${ICON_CLASS_X} {
             position: absolute !important;
@@ -72,7 +87,130 @@
         .${ICON_CLASS}.hidden, .${ICON_CLASS_X}.hidden {
             display: none !important;
         }
+
+        #detective-ani-overlay {
+            position: fixed !important;
+            bottom: 0 !important;
+            right: 0 !important;
+            width: ${ANI_WIDTH}px !important;
+            height: ${ANI_HEIGHT}px !important;
+            max-width: none !important;
+            max-height: none !important;
+            object-fit: none !important;
+            transform: none !important;
+            z-index: 2147483646 !important;
+            pointer-events: none !important;
+            user-select: none !important;
+            opacity: 0;
+            transition: opacity ${ANI_FADE_MS}ms cubic-bezier(0.4, 0, 0.2, 1) !important;
+            image-rendering: auto !important;
+            will-change: opacity;
+        }
+
+        #detective-ani-overlay.visible {
+            opacity: 1 !important;
+        }
+
+        #detective-ani-overlay.fade-out {
+            opacity: 0 !important;
+        }
     `);
+
+    // ─── Load Ani image safely (bypasses CSP) ────────────────────────────────
+    function loadAniAsBlob(callback) {
+        if (aniBlobUrl) {
+            callback(aniBlobUrl);
+            return;
+        }
+
+        GM_xmlhttpRequest({
+            method: 'GET',
+            url: ANI_IMAGE_URL,
+            responseType: 'blob',
+            timeout: 15000,
+            onload(res) {
+                if (res.status >= 200 && res.status < 300 && res.response) {
+                    aniBlobUrl = URL.createObjectURL(res.response);
+                    console.log('%c[TitleX] Detective Ani image loaded via blob (CSP-safe)', 'color:#fbbf24');
+                    callback(aniBlobUrl);
+                } else {
+                    console.warn('[TitleX] Failed to load Ani image, status:', res.status);
+                }
+            },
+            onerror(err) {
+                console.warn('[TitleX] Error loading Ani image:', err);
+            }
+        });
+    }
+
+    // ─── Show Detective Ani (once per browser session) ───────────────────────
+    function showDetectiveAni() {
+        if (aniAlreadyShown) {
+            console.log('%c[TitleX] Ani already shown in this browser session', 'color:orange');
+            return;
+        }
+        aniAlreadyShown = true;
+
+        try {
+            sessionStorage.setItem(ANI_STORAGE_KEY, 'true');
+        } catch (_) {}
+
+        document.getElementById('detective-ani-overlay')?.remove();
+
+        loadAniAsBlob((blobUrl) => {
+            const img = document.createElement('img');
+            img.id = 'detective-ani-overlay';
+            img.src = blobUrl;
+            img.alt = 'Detective Ani';
+            img.width = ANI_WIDTH;
+            img.height = ANI_HEIGHT;
+
+            img.style.cssText = `
+                position: fixed !important;
+                bottom: 0 !important;
+                right: 0 !important;
+                width: ${ANI_WIDTH}px !important;
+                height: ${ANI_HEIGHT}px !important;
+                max-width: none !important;
+                max-height: none !important;
+                object-fit: none !important;
+                transform: none !important;
+                scale: 1 !important;
+                z-index: 2147483646 !important;
+                pointer-events: none !important;
+                user-select: none !important;
+                opacity: 0;
+                transition: opacity ${ANI_FADE_MS}ms cubic-bezier(0.4, 0, 0.2, 1) !important;
+            `;
+
+            const target = document.body || document.documentElement;
+            target.appendChild(img);
+
+            void img.offsetWidth; // force reflow
+
+            requestAnimationFrame(() => {
+                img.classList.add('visible');
+            });
+
+            console.log('%c[TitleX] 🕵️ Detective Ani apareceu (7 segundos)', 'color:#fbbf24;font-weight:bold;font-size:14px');
+
+            setTimeout(() => {
+                img.classList.remove('visible');
+                img.classList.add('fade-out');
+
+                setTimeout(() => {
+                    img.remove();
+                }, ANI_FADE_MS + 50);
+            }, ANI_DURATION_MS);
+        });
+    }
+
+    // ─── Forçar Ani (para teste) ─────────────────────────────────────────────
+    window.forceDetectiveAni = function () {
+        aniAlreadyShown = false;
+        try { sessionStorage.removeItem(ANI_STORAGE_KEY); } catch (_) {}
+        showDetectiveAni();
+    };
 
     // ─── Toggle (F4) ─────────────────────────────────────────────────────────
     function toggleIcons() {
@@ -99,7 +237,7 @@
         const icon = document.createElement('span');
         icon.className = className;
         if (!iconsVisible) icon.classList.add('hidden');
-        icon.textContent = '🟢';
+        icon.textContent = '🔍';
         icon.title = `UUID: ${uuid}\nClick to open in Imagine\n${HOVER_HINT}`;
         icon.addEventListener('click', (e) => {
             e.preventDefault();
@@ -137,7 +275,9 @@
         if (!container) return;
 
         container.appendChild(createIcon(uuid));
-        console.log('%c[TitleX] 🟢 added →', 'color:lime', uuid);
+        console.log('%c[TitleX] 🔍 added →', 'color:lime', uuid);
+
+        showDetectiveAni();
     }
 
     // ─── Helper: detect redgifs ───────────────────────────────────────────────
@@ -147,14 +287,12 @@
     }
 
     function isInsideRedgifsIframe(el) {
-        // Walk up looking for an iframe ancestor that points to redgifs
         let node = el;
         while (node) {
             if (node.tagName === 'IFRAME') {
                 const src = node.src || node.getAttribute('src') || node.getAttribute('data-src') || '';
                 if (isRedgifsUrl(src)) return true;
             }
-            // Also check common embed wrappers
             if (node.tagName === 'SHREDDIT-EMBED' || node.classList?.contains('redgifs') || node.id?.includes('redgifs')) {
                 return true;
             }
@@ -234,11 +372,9 @@
             filename = url;
         }
 
-        // 1. _generated_UUID (valid for both image & video)
         const genMatch = filename.match(/_generated_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
         if (genMatch) return genMatch[1];
 
-        // 2. Pure UUID or UUID + extension → videos only
         if (isVideo) {
             if (fnValue) {
                 const fnMatch = fnValue.match(
@@ -253,7 +389,6 @@
             if (pureOrExtMatch) return pureOrExtMatch[1];
         }
 
-        // 3. Any UUID when filename contains "grok"
         if (/grok/i.test(filename)) {
             const match = filename.match(UUID_REGEX);
             if (match) return match[0];
@@ -279,7 +414,6 @@
     function checkUrl(url, media) {
         if (!url) return;
 
-        // ── Strong redgifs protection ────────────────────────────────────────
         if (isRedgifsUrl(url)) return;
         if (media && isInsideRedgifsIframe(media)) return;
 
@@ -317,7 +451,6 @@
     function processMedia(media) {
         if (!media || media.dataset.titlexUuid) return;
 
-        // ── Strong redgifs protection ────────────────────────────────────────
         if (isInsideRedgifsIframe(media)) return;
         if (isRedgifsUrl(media.src) || isRedgifsUrl(media.currentSrc)) return;
 
@@ -359,13 +492,11 @@
     function scan() {
         document.querySelectorAll('video, img').forEach(processMedia);
 
-        // Completely ignore redgifs iframes – do not even try contentDocument
         document.querySelectorAll('iframe').forEach(iframe => {
             try {
                 const src = (iframe.src || iframe.getAttribute('src') || iframe.getAttribute('data-src') || '').toLowerCase();
-                if (src.includes('redgifs.com')) return; // ← hard skip
+                if (src.includes('redgifs.com')) return;
 
-                // Also skip common embed wrappers
                 if (iframe.closest('shreddit-embed') || iframe.closest('[class*="redgifs"]')) return;
 
                 const doc = iframe.contentDocument;
@@ -467,6 +598,8 @@
             icon.style.bottom = '6px';
             icon.style.right = '6px';
             container.appendChild(icon);
+
+            showDetectiveAni();
         }
 
         function processTweet(article) {
@@ -486,7 +619,6 @@
             const photoUUIDs = mediaObjects.filter(m => !m.isVideo).map(m => m.uuid);
             const videoUUIDs = mediaObjects.filter(m => m.isVideo).map(m => m.uuid);
 
-            // Photos
             const photos = [...article.querySelectorAll('[data-testid="tweetPhoto"] img')]
                 .filter(img => img.offsetWidth > 40);
 
@@ -505,7 +637,6 @@
                 if (uuid) addIconX(img, uuid);
             });
 
-            // Videos
             const videos = [...article.querySelectorAll('[data-testid="videoComponent"] video')]
                 .filter(v => v.offsetWidth > 40);
 
@@ -555,7 +686,7 @@
         setTimeout(scanTwitter, 3000);
 
         console.log(
-            '%c[TitleX] Twitter/X mode active – F4 toggles icons',
+            '%c[TitleX] Twitter/X mode active – Detective Ani once per browser session (7s)',
             'color:#00ff88;font-weight:bold'
         );
     } else {
@@ -564,7 +695,6 @@
             let needsScan = false;
             for (const m of mutations) {
                 if (m.type === 'childList') {
-                    // Ignore mutations that only involve redgifs iframes
                     let onlyRedgifs = true;
                     for (const node of m.addedNodes) {
                         if (node.nodeType !== 1) continue;
@@ -613,7 +743,7 @@
         }, 5000);
 
         console.log(
-            '%c[TitleX] v3.8 active – pure UUID only on videos | 🟢 8×8px | F4 = toggle | redgifs fully ignored | grok.com disabled',
+            '%c[TitleX] v1.5 active – Detective Ani once per browser session (7s)',
             'color:cyan;font-weight:bold'
         );
     }
